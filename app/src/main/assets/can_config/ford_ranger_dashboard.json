@@ -246,19 +246,13 @@
     "hazard": {
       "_label": "Đèn cảnh báo (Hazard Flashers)",
       "_source": "Phân tích từ code STM32 do user cung cấp (2026-05-19).",
-      "_pattern": "ON  : 44 88 C0 0C 18 00 40 3A  (byte4=0x18 turn-request, byte6=0x40 arrow on)\nOFF : 44 88 C0 0C 10 00 00 3A  (byte4=0x10 idle, byte6=0x00 arrow off)\nByte 5=0x00 + byte 7=0x3A là dấu hiệu phân biệt HAZARD mode (vs turn_left/right có byte5=0x50, byte7=0xC2/0x02).",
-      "_caveat": "Hazard thật cần stream liên tục: nháy ON↔OFF mỗi 500ms + keep-alive (0x447, 0x42C, 0x167, 0x109, 0x083) mỗi 10ms. Active Test hiện chỉ gửi 1 ON + 1 OFF — cluster sẽ chỉ flash ngắn rồi tắt. Khi cần blink đầy đủ, dùng mã streaming riêng (xem ghi chú trong app).",
-      "_keepAlive_optional": [
-        "0x447 → 20 00 00 4B 00 00 00 00 (network heartbeat)",
-        "0x42C → 80 02 00 00 00 00 00 00 (power state)",
-        "0x167 → 72 00 00 00 00 00 00 00 (engine running flag)",
-        "0x109 → 0E 10 31 00 00 00 00 00 (gear D + RPM)",
-        "0x083 → 10 00 00 00 00 00 00 00 (turn lever = hazard pos)",
-        "0x3B2 → mirror của 0x3B3 (backup channel)"
-      ],
+      "_pattern": "ON  : 44 88 C0 0C 18 00 40 3A  (byte4=0x18 turn-request, byte6=0x40 arrow on)\nOFF : 44 88 C0 0C 10 00 00 3A  (byte4=0x10 idle, byte6=0x00 arrow off)",
+      "_streamingNote": "streamMode=blink_toggle: bấm icon hazard sẽ START loop toggle ON↔OFF mỗi 500ms. Bấm lần 2 → STOP, app gửi 1 frame OFF cuối để cluster tắt sạch. Keep-alive frames trong wakeUpSequence giữ cluster sống nền.",
       "canId": "0x3B3",
       "canData":    "44 88 C0 0C 18 00 40 3A",
-      "canDataOff": "44 88 C0 0C 10 00 00 3A"
+      "canDataOff": "44 88 C0 0C 10 00 00 3A",
+      "streamMode":        "blink_toggle",
+      "streamIntervalMs":  500
     },
 
     "esp_alt": {
