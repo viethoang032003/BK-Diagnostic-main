@@ -54,8 +54,9 @@ object UnifiedRawFrameStore {
 
     // ── Gauge delta state ────────────────────────────────────────────────────
 
-    @Volatile private var lastGaugeRpm:   Int = Int.MIN_VALUE
-    @Volatile private var lastGaugeSpeed: Int = Int.MIN_VALUE
+    @Volatile private var lastGaugeRpm:     Int = Int.MIN_VALUE
+    @Volatile private var lastGaugeSpeed:   Int = Int.MIN_VALUE
+    @Volatile private var lastGaugeCoolant: Int = Int.MIN_VALUE
 
     // ── Public API ───────────────────────────────────────────────────────────
 
@@ -103,22 +104,27 @@ object UnifiedRawFrameStore {
         force: Boolean = false,
     ): Boolean {
         val last = when (kind) {
-            GaugeKind.RPM   -> lastGaugeRpm
-            GaugeKind.SPEED -> lastGaugeSpeed
+            GaugeKind.RPM     -> lastGaugeRpm
+            GaugeKind.SPEED   -> lastGaugeSpeed
+            GaugeKind.COOLANT -> lastGaugeCoolant
         }
+        // Coolant chỉ có 60 giá trị (60..120) — threshold nhỏ hơn để mỗi °C đều log
+        val threshold = if (kind == GaugeKind.COOLANT) 1 else GAUGE_DELTA_THRESHOLD
         val changed = last == Int.MIN_VALUE ||
-                      abs(currentValue - last) >= GAUGE_DELTA_THRESHOLD
+                      abs(currentValue - last) >= threshold
         if (!force && !changed) return false
 
         // Cập nhật state
         when (kind) {
-            GaugeKind.RPM   -> lastGaugeRpm   = currentValue
-            GaugeKind.SPEED -> lastGaugeSpeed = currentValue
+            GaugeKind.RPM     -> lastGaugeRpm     = currentValue
+            GaugeKind.SPEED   -> lastGaugeSpeed   = currentValue
+            GaugeKind.COOLANT -> lastGaugeCoolant = currentValue
         }
 
         val label = when (kind) {
-            GaugeKind.RPM   -> "Gauge RPM=$currentValue"
-            GaugeKind.SPEED -> "Gauge SPEED=$currentValue km/h"
+            GaugeKind.RPM     -> "Gauge RPM=$currentValue"
+            GaugeKind.SPEED   -> "Gauge SPEED=$currentValue km/h"
+            GaugeKind.COOLANT -> "Gauge COOLANT=$currentValue °C"
         }
         val src = when {
             force                   -> "gauge_event"   // START / STOP / reset
@@ -136,8 +142,9 @@ object UnifiedRawFrameStore {
 
     /** Reset gauge delta tracking — gọi khi START hoặc STOP gauge stream. */
     fun resetGaugeDelta() {
-        lastGaugeRpm   = Int.MIN_VALUE
-        lastGaugeSpeed = Int.MIN_VALUE
+        lastGaugeRpm     = Int.MIN_VALUE
+        lastGaugeSpeed   = Int.MIN_VALUE
+        lastGaugeCoolant = Int.MIN_VALUE
     }
 
     /** Xoá toàn bộ log. Gọi từ UI khi user nhấn CLEAR. */
@@ -194,4 +201,4 @@ object UnifiedRawFrameStore {
     }
 }
 
-enum class GaugeKind { RPM, SPEED }
+enum class GaugeKind { RPM, SPEED, COOLANT }

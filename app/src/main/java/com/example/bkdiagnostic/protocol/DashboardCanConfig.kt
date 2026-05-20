@@ -67,14 +67,62 @@ object DashboardCanConfig {
     }
 
     /**
+     * Cấu hình kim NHIỆT ĐỘ NƯỚC LÀM MÁT.  Khác với RPM/Speed (linear scale),
+     * coolant dùng công thức piecewise linear với clamp 2 đầu để kim không
+     * văng cơ học.
+     *
+     * Encoding:
+     *   tempByte = Calculate_Temperature(temp_c)         (xem hàm helper)
+     *   frame[0]                = byte0  (status byte cố định, thường = 0x00)
+     *   frame[tempByteIndex]    = tempByte
+     *   các byte còn lại        = 0x00
+     */
+    data class CoolantEntry(
+        val canId: Int,
+        val minValue: Int = 60,
+        val maxValue: Int = 120,
+        val byte0: Byte = 0x00,
+        val tempByteIndex: Int = 4,
+        val label: String = ""
+    ) {
+        /**
+         * Công thức piecewise do user cung cấp (Ford Ranger cluster).
+         *
+         *   T ≤ 60°C  → 110
+         *   T ≥ 120°C → 182
+         *   60 < T ≤ 90  → (T * 7 / 6) + 40
+         *   90 < T < 120 → (T * 2 / 5) + 134
+         */
+        fun calculateTempByte(tempC: Int): Int {
+            if (tempC <= 60) return 110
+            if (tempC >= 120) return 182
+            return if (tempC <= 90) ((tempC * 7) / 6) + 40
+                   else            ((tempC * 2) / 5) + 134
+        }
+
+        fun encode(tempC: Int): ByteArray {
+            val data = ByteArray(8)
+            data[0] = byte0
+            if (tempByteIndex in 0..7) {
+                data[tempByteIndex] = (calculateTempByte(tempC) and 0xFF).toByte()
+            }
+            return data
+        }
+
+        override fun equals(other: Any?) = other is CoolantEntry && canId == other.canId
+        override fun hashCode() = canId
+    }
+
+    /**
      * Cấu hình tổng cho gauge streaming.
      */
     data class GaugeConfig(
         val rpm: GaugeEntry?,
         val speed: GaugeEntry?,
+        val coolant: CoolantEntry? = null,
         val intervalMs: Long = 100L
     ) {
-        val hasAny: Boolean get() = rpm != null || speed != null
+        val hasAny: Boolean get() = rpm != null || speed != null || coolant != null
     }
 
     /**
@@ -175,9 +223,30 @@ object DashboardCanConfig {
         if (obj == null) return GaugeConfig(null, null)
         val rpm = parseGaugeEntry(obj.optJSONObject("rpm"))
         val speed = parseGaugeEntry(obj.optJSONObject("speed"))
+        val coolant = parseCoolantEntry(obj.optJSONObject("coolant"))
         val intervalMs = obj.optLong("intervalMs", 100L)
-        Log.d(TAG, "Loaded gauges: rpm=${rpm != null}, speed=${speed != null}, interval=${intervalMs}ms")
-        return GaugeConfig(rpm, speed, intervalMs)
+        Log.d(TAG, "Loaded gauges: rpm=${rpm != null}, speed=${speed != null}, " +
+                "coolant=${coolant != null}, interval=${intervalMs}ms")
+        return GaugeConfig(rpm, speed, coolant, intervalMs)
+    }
+
+    private fun parseCoolantEntry(obj: JSONObject?): CoolantEntry? {
+        if (obj == null) return null
+        return try {
+            val canId = parseHexInt(obj.getString("canId"))
+            if (canId == 0) return null
+            CoolantEntry(
+                canId         = canId,
+                minValue      = obj.optInt("minValue", 60),
+                maxValue      = obj.optInt("maxValue", 120),
+                byte0         = parseHexInt(obj.optString("byte0", "0x00")).toByte(),
+                tempByteIndex = obj.optInt("tempByteIndex", 4).coerceIn(0, 7),
+                label         = obj.optString("_label", "")
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Lỗi parse coolant entry: ${e.message}")
+            null
+        }
     }
 
     private fun parseWakeUpSequence(obj: JSONObject?): WakeUpSequence {
