@@ -329,6 +329,10 @@ class DiagnosticViewModel(
     /** Giá trị Speed hiện tại (km/h) — UI cập nhật khi kéo slider */
     val gaugeSpeed = MutableStateFlow(0)
 
+    /** Nhiệt độ nước làm mát hiện tại (°C, 60..120) — UI cập nhật khi kéo slider.
+     *  Mặc định 60 (giá trị "lạnh / chốt an toàn") để kim không văng cơ. */
+    val gaugeCoolant = MutableStateFlow(60)
+
     /** Số frame đã gửi trong session streaming hiện tại — debug counter */
     private val _gaugeFrameCount = MutableStateFlow(0)
     val gaugeFrameCount: StateFlow<Int> = _gaugeFrameCount.asStateFlow()
@@ -345,11 +349,12 @@ class DiagnosticViewModel(
     fun startGaugeStream(
         rpm: DashboardCanConfig.GaugeEntry?,
         speed: DashboardCanConfig.GaugeEntry?,
+        coolant: DashboardCanConfig.CoolantEntry? = null,
         intervalMs: Long = 100L,
     ) {
         if (_gaugeStreamActive.value) return
-        if (rpm == null && speed == null) {
-            _message.value = "Chưa cấu hình CAN ID cho RPM/Speed"
+        if (rpm == null && speed == null && coolant == null) {
+            _message.value = "Chưa cấu hình CAN ID cho RPM/Speed/Coolant"
             return
         }
         _gaugeStreamActive.value = true
@@ -360,8 +365,9 @@ class DiagnosticViewModel(
             try {
                 var firstTick = true
                 while (isActive) {
-                    val rpmVal = gaugeRpm.value
-                    val speedVal = gaugeSpeed.value
+                    val rpmVal     = gaugeRpm.value
+                    val speedVal   = gaugeSpeed.value
+                    val coolantVal = gaugeCoolant.value
 
                     // ── RPM frame ─ encode theo template trong config ──
                     if (rpm != null) {
@@ -383,6 +389,18 @@ class DiagnosticViewModel(
                         usbManager.sendFrame(speedFrame)
                     }
 
+                    // ── Coolant frame ─ piecewise transform, single byte 4 ──
+                    if (coolant != null) {
+                        val coolantFrame = CanFrame(
+                            id = coolant.canId, dlc = 8, data = coolant.encode(coolantVal)
+                        )
+                        UnifiedRawFrameStore.addGaugeFrame(
+                            coolantFrame, GaugeKind.COOLANT, currentValue = coolantVal,
+                            force = firstTick
+                        )
+                        usbManager.sendFrame(coolantFrame)
+                    }
+
                     firstTick = false
                     _gaugeFrameCount.value = _gaugeFrameCount.value + 1
                     delay(intervalMs)
@@ -394,11 +412,13 @@ class DiagnosticViewModel(
     }
 
     /**
-     * Dừng stream và gửi 1 frame zero để cluster reset kim về 0.
+     * Dừng stream và gửi 1 frame "lạnh / 0" để cluster reset kim.
      */
     fun stopGaugeStream(
         rpmCanId: Int? = null,
         speedCanId: Int? = null,
+        coolantCanId: Int? = null,
+        coolantSafe: ByteArray? = null,
     ) {
         gaugeStreamJob?.cancel()
         gaugeStreamJob = null
@@ -415,14 +435,24 @@ class DiagnosticViewModel(
                 UnifiedRawFrameStore.addGaugeFrame(zero, GaugeKind.SPEED, currentValue = 0, force = true)
                 usbManager.sendFrame(zero)
             }
+            if (coolantCanId != null) {
+                // Frame "an toàn" cho coolant: byte 4 = 110 (chốt cold-end để kim không
+                // văng cơ). Caller truyền coolantSafe = coolant.encode(60).
+                val data = coolantSafe ?: ByteArray(8)
+                val stop = CanFrame(id = coolantCanId, dlc = 8, data = data)
+                UnifiedRawFrameStore.addGaugeFrame(stop, GaugeKind.COOLANT, currentValue = 60, force = true)
+                usbManager.sendFrame(stop)
+            }
         }
         gaugeRpm.value = 0
         gaugeSpeed.value = 0
+        gaugeCoolant.value = 60
         UnifiedRawFrameStore.resetGaugeDelta()
     }
 
     fun updateGaugeRpm(value: Int) { gaugeRpm.value = value.coerceAtLeast(0) }
     fun updateGaugeSpeed(value: Int) { gaugeSpeed.value = value.coerceAtLeast(0) }
+    fun updateGaugeCoolant(value: Int) { gaugeCoolant.value = value.coerceIn(60, 120) }
 
     fun clearRawLog() {
         UnifiedRawFrameStore.clear()

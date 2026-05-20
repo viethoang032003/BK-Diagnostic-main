@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -230,6 +231,36 @@ private val WARNING_ICONS: List<DashboardWarningIcon> = listOf(
         asset = "Fuel-01.svg", color = Color(0xFFFFA726),
         xFrac = 0.87f, yFrac = 0.71f,
     ),
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  Bổ sung 2026-05-19 — 4 icon mới (SVG do user cung cấp)
+    //  Vị trí xFrac/yFrac là ước lượng ban đầu, có thể fine-tune trực tiếp.
+    // ════════════════════════════════════════════════════════════════════════
+
+    // 🟢 GREEN — Đèn xi nhan trái (góc trên-trái, ngoài cùng)
+    DashboardWarningIcon(
+        id = "turn_left", label = "Xi nhan trái (Left Turn)",
+        asset = "LeftTurn.svg", color = Color(0xFF66BB6A),
+        xFrac = 0.13f, yFrac = 0.18f,
+    ),
+    // 🟢 GREEN — Đèn xi nhan phải (góc trên-phải, ngoài cùng)
+    DashboardWarningIcon(
+        id = "turn_right", label = "Xi nhan phải (Right Turn)",
+        asset = "RightTurn.svg", color = Color(0xFF66BB6A),
+        xFrac = 0.87f, yFrac = 0.18f,
+    ),
+    // 🟡 AMBER — Đèn sương mù (bottom-left, kế cận engine_chk)
+    DashboardWarningIcon(
+        id = "fog_lamp", label = "Đèn sương mù (Fog)",
+        asset = "FogLamp.svg", color = Color(0xFFFFA726),
+        xFrac = 0.13f, yFrac = 0.72f,
+    ),
+    // 🔴 RED — Đèn cảnh báo (Hazard) — vị trí trung tâm trên, dễ thấy
+    DashboardWarningIcon(
+        id = "hazard", label = "Đèn cảnh báo (Hazard)",
+        asset = "Hazard.svg", color = Color(0xFFE53935),
+        xFrac = 0.50f, yFrac = 0.18f,
+    ),
 )
 
 // ── Screen ────────────────────────────────────────────────────────────────────
@@ -272,6 +303,7 @@ fun ActiveTestScreen(
     val gaugeStreamActive by viewModel.gaugeStreamActive.collectAsStateWithLifecycle()
     val gaugeRpmValue by viewModel.gaugeRpm.collectAsStateWithLifecycle()
     val gaugeSpeedValue by viewModel.gaugeSpeed.collectAsStateWithLifecycle()
+    val gaugeCoolantValue by viewModel.gaugeCoolant.collectAsStateWithLifecycle()
     val gaugeFrameCount by viewModel.gaugeFrameCount.collectAsStateWithLifecycle()
 
     // ImageLoader with SVG decoder — one instance per screen session
@@ -578,25 +610,30 @@ fun ActiveTestScreen(
                     .fillMaxWidth(),
             ) {
                 GaugeControlPanel(
-                    gaugeConfig    = gaugeConfig,
-                    rpmValue       = gaugeRpmValue,
-                    speedValue     = gaugeSpeedValue,
-                    isStreaming    = gaugeStreamActive,
-                    isConnected    = isConnected,
-                    frameCount     = gaugeFrameCount,
-                    onRpmChange    = viewModel::updateGaugeRpm,
-                    onSpeedChange  = viewModel::updateGaugeSpeed,
-                    onStartStream  = {
+                    gaugeConfig     = gaugeConfig,
+                    rpmValue        = gaugeRpmValue,
+                    speedValue      = gaugeSpeedValue,
+                    coolantValue    = gaugeCoolantValue,
+                    isStreaming     = gaugeStreamActive,
+                    isConnected     = isConnected,
+                    frameCount      = gaugeFrameCount,
+                    onRpmChange     = viewModel::updateGaugeRpm,
+                    onSpeedChange   = viewModel::updateGaugeSpeed,
+                    onCoolantChange = viewModel::updateGaugeCoolant,
+                    onStartStream   = {
                         viewModel.startGaugeStream(
                             rpm        = gaugeConfig.rpm,
                             speed      = gaugeConfig.speed,
+                            coolant    = gaugeConfig.coolant,
                             intervalMs = gaugeConfig.intervalMs,
                         )
                     },
                     onStopStream  = {
                         viewModel.stopGaugeStream(
-                            rpmCanId   = gaugeConfig.rpm?.canId,
-                            speedCanId = gaugeConfig.speed?.canId,
+                            rpmCanId     = gaugeConfig.rpm?.canId,
+                            speedCanId   = gaugeConfig.speed?.canId,
+                            coolantCanId = gaugeConfig.coolant?.canId,
+                            coolantSafe  = gaugeConfig.coolant?.encode(60),
                         )
                     },
                     onClose       = { gaugePanelOpen = false },
@@ -615,11 +652,13 @@ private fun GaugeControlPanel(
     gaugeConfig: DashboardCanConfig.GaugeConfig,
     rpmValue: Int,
     speedValue: Int,
+    coolantValue: Int,
     isStreaming: Boolean,
     isConnected: Boolean,
     frameCount: Int,
     onRpmChange: (Int) -> Unit,
     onSpeedChange: (Int) -> Unit,
+    onCoolantChange: (Int) -> Unit,
     onStartStream: () -> Unit,
     onStopStream: () -> Unit,
     onClose: () -> Unit,
@@ -728,7 +767,7 @@ private fun GaugeControlPanel(
             }
         }
 
-        // ── Big digital display: RPM + Speed ─────────────────────────────
+        // ── Big digital display: RPM + Speed + Coolant ───────────────────
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             gaugeConfig.rpm?.let {
                 DigitalGaugeDisplay(
@@ -748,6 +787,15 @@ private fun GaugeControlPanel(
                     modifier   = Modifier.weight(1f),
                 )
             }
+            gaugeConfig.coolant?.let {
+                DigitalGaugeDisplay(
+                    value      = coolantValue,
+                    unit       = "°C",
+                    accent     = Color(0xFFFFA726),
+                    icon       = Icons.Filled.Thermostat,
+                    modifier   = Modifier.weight(1f),
+                )
+            }
         }
 
         // ── RPM slider ───────────────────────────────────────────────────
@@ -755,6 +803,7 @@ private fun GaugeControlPanel(
             GaugeSlider(
                 label       = "RPM",
                 value       = rpmValue,
+                minValue    = 0,
                 maxValue    = rpm.maxValue,
                 unit        = "rpm",
                 accent      = Color(0xFFEF5350),
@@ -768,11 +817,26 @@ private fun GaugeControlPanel(
             GaugeSlider(
                 label       = "SPEED",
                 value       = speedValue,
+                minValue    = 0,
                 maxValue    = spd.maxValue,
                 unit        = "km/h",
                 accent      = Color(0xFF42A5F5),
                 canIdHex    = "0x%03X".format(spd.canId),
                 onChange    = onSpeedChange,
+            )
+        }
+
+        // ── Coolant slider (60..120 °C; piecewise linear → byte 4) ───────
+        gaugeConfig.coolant?.let { c ->
+            GaugeSlider(
+                label       = "COOLANT",
+                value       = coolantValue,
+                minValue    = c.minValue,
+                maxValue    = c.maxValue,
+                unit        = "°C",
+                accent      = Color(0xFFFFA726),
+                canIdHex    = "0x%03X".format(c.canId),
+                onChange    = onCoolantChange,
             )
         }
 
@@ -854,6 +918,7 @@ private fun GaugeSlider(
     accent: Color,
     canIdHex: String,
     onChange: (Int) -> Unit,
+    minValue: Int = 0,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -900,7 +965,7 @@ private fun GaugeSlider(
         Slider(
             value = value.toFloat(),
             onValueChange = { onChange(it.toInt()) },
-            valueRange = 0f..maxValue.toFloat(),
+            valueRange = minValue.toFloat()..maxValue.toFloat(),
             colors = SliderDefaults.colors(
                 thumbColor       = accent,
                 activeTrackColor = accent,
@@ -914,7 +979,7 @@ private fun GaugeSlider(
         // Min / Max scale labels
         Row(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text  = "0",
+                text  = "%,d".format(minValue),
                 color = Color.White.copy(alpha = 0.40f),
                 fontSize = 9.sp,
                 fontFamily = FontFamily.Monospace,

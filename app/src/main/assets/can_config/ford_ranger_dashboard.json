@@ -13,19 +13,17 @@
   ],
 
   "_missing_icons_todo": [
-    "Các đèn/chức năng có CAN frame trong tài liệu nhưng CHƯA có SVG/vị trí trên app — bổ sung sau:",
+    "Còn thiếu SVG (user chưa cung cấp) — cần bổ sung sau:",
     "  • hand_brake     (Phanh tay)               CAN 0x3C3  ON: 4C 48 10 01 10 00 00 02  OFF: 4C 48 00 01 10 00 00 02",
     "  • hill_descent   (Cảnh báo trơn trượt + Hill descent) CAN 0x416  ON: 40 00 02 12 00 E3 80 02",
-    "  • turn_left      (Si nhan trái)            CAN 0x3B3  ON: 44 88 C0 0C 18 50 00 C2  OFF: 44 88 C0 0C E6 00 00 02",
-    "  • turn_right     (Si nhan phải)            CAN 0x3B3  ON: 44 88 C0 0C 10 50 40 02  OFF: 44 88 C0 0C E6 00 00 02",
-    "  • fog_lamp       (Đèn sương mù — base, có thể kèm cờ cửa ở byte 6/7)",
     "  • door_rear_l    (Cửa sau trái mở)         CAN 0x3B3  ON: 44 88 C0 0C E6 00 01 01",
     "  • door_rear_r    (Cửa sau phải mở)         CAN 0x3B3  ON: 44 88 C0 0C E6 00 02 01",
     "  • door_rear_lr   (Cả 2 cửa sau)            CAN 0x3B3  ON: 44 88 C0 0C E6 00 03 01",
     "  • door_driver    (Cửa tài mở)              CAN 0x3B3  ON: 44 88 C0 0C E6 00 00 11",
     "  • door_passenger (Cửa phụ mở)              CAN 0x3B3  ON: 44 88 C0 0C E6 00 00 21",
     "  • door_front_lr  (Cả 2 cửa trước)          CAN 0x3B3  ON: 44 88 C0 0C E6 00 00 31",
-    "  • gear_d         (Chỉnh số D)              CAN 0x171  ON: 34 60 00 00 00 00 00 00"
+    "  • gear_d         (Chỉnh số D)              CAN 0x171  ON: 34 60 00 00 00 00 00 00",
+    "Đã bổ sung (2026-05-19): fog_lamp, turn_left, turn_right, hazard, esp, on_off."
   ],
 
   "wakeUpSequence": {
@@ -56,7 +54,8 @@
     "rpm": {
       "_label": "Vòng tua máy (Tachometer) — Ford Ranger",
       "_formula": "RPM/2 → 0x0xxx → bytes 3,4. Vd: 7000 rpm → 3500 → 0x0DAC → byte3=0x0D, byte4=0xAC.",
-      "canId": "0x201",
+      "_note": "CAN ID cập nhật 0x201 → 0x204 theo sửa đổi mới (2026-05-19).",
+      "canId": "0x204",
       "maxValue": 8000,
       "scaleFactor": 0.5,
       "template":      "00 00 00 00 00 00 00 00",
@@ -74,6 +73,19 @@
       "template":      "00 00 00 00 F0 00 00 00",
       "highByteIndex": 6,
       "lowByteIndex":  7
+    },
+
+    "coolant": {
+      "_label": "Nhiệt độ nước làm mát (Coolant Temperature) — Ford Ranger",
+      "_formula": "Piecewise linear (kim không văng cơ):\n  T ≤ 60°C  → byte = 110\n  T ≥ 120°C → byte = 182\n  60 < T ≤ 90  → byte = (T * 7 / 6) + 40\n  90 < T < 120 → byte = (T * 2 / 5) + 134",
+      "_frame": "Frame: BB 00 00 00 TT 00 00 00. BB = byte0, TT = byte4 = Calculate_Temperature(temp_c).",
+      "_note": "Encoding KHÁC RPM/Speed: không phải big-endian 16-bit mà là single-byte qua công thức piecewise. ViewModel xử lý riêng.",
+      "canId": "0x156",
+      "minValue": 60,
+      "maxValue": 120,
+      "byte0":         "0x00",
+      "tempByteIndex": 4,
+      "transform":     "ford_coolant_piecewise"
     },
 
     "intervalMs": 100
@@ -183,6 +195,44 @@
     "fuel": {
       "_label": "Mức nhiên liệu (Low Fuel Warning)",
       "_note": "Chưa có dữ liệu CAN — bổ sung sau.",
+      "canId": "0x000",
+      "canData":    "00 00 00 00 00 00 00 00",
+      "canDataOff": "00 00 00 00 00 00 00 00"
+    },
+
+    "fog_lamp": {
+      "_label": "Đèn sương mù (Fog Lamp)",
+      "_note": "Frame base 0x3B3 với byte 4 = 0xE6 (bật fog). OFF = byte 4 = 0x00.",
+      "canId": "0x3B3",
+      "canData":    "44 88 C0 0C E6 00 00 02",
+      "canDataOff": "44 88 C0 0C 00 00 00 02"
+    },
+
+    "turn_left": {
+      "_label": "Đèn xi nhan trái (Left Turn Signal)",
+      "canId": "0x3B3",
+      "canData":    "44 88 C0 0C 18 50 00 C2",
+      "canDataOff": "44 88 C0 0C E6 00 00 02"
+    },
+
+    "turn_right": {
+      "_label": "Đèn xi nhan phải (Right Turn Signal)",
+      "canId": "0x3B3",
+      "canData":    "44 88 C0 0C 10 50 40 02",
+      "canDataOff": "44 88 C0 0C E6 00 00 02"
+    },
+
+    "hazard": {
+      "_label": "Đèn cảnh báo (Hazard Flashers)",
+      "_note": "Chưa có CAN frame chính thức — đặt placeholder, user cần cung cấp.",
+      "canId": "0x000",
+      "canData":    "00 00 00 00 00 00 00 00",
+      "canDataOff": "00 00 00 00 00 00 00 00"
+    },
+
+    "esp_alt": {
+      "_label": "ESP (Electronic Stability Program) — SVG riêng",
+      "_note": "Dùng ESP.svg do user cung cấp. Trùng chức năng với stability — placeholder để bổ sung sau nếu muốn icon riêng.",
       "canId": "0x000",
       "canData":    "00 00 00 00 00 00 00 00",
       "canDataOff": "00 00 00 00 00 00 00 00"

@@ -125,8 +125,9 @@ Tap a warning lamp on a photoreal cluster image and the lamp lights up on the re
 - **14 warning icons** mapped to their CAN frames (high beam, lamp-on, ABS, ESP, MIL, airbag, TPMS, …). Tap an icon → app sends the ON frame, blinks for 2 s, then sends the OFF frame.
 - **Cluster wake-up sequence**: on USB connect, the app fires a configurable list of frames (default `0x3B3 44 88 C0 0C E6 00 03 3A`) to bring the cluster into Active state, then shows a confirmation snackbar. Sequence lives in JSON so adding extra "backlight" or "init" frames requires zero code changes.
 - **Gauge streaming** with a template-based encoder so each cluster's quirks live in JSON, not in source:
-  - **RPM** (CAN `0x201`) — value × 0.5 packed into bytes 3–4 big-endian. 7000 rpm → `0x0DAC` → frame `00 00 00 0D AC 00 00 00`.
+  - **RPM** (CAN `0x204`) — value × 0.5 packed into bytes 3–4 big-endian. 7000 rpm → `0x0DAC` → frame `00 00 00 0D AC 00 00 00`.
   - **Speed** (CAN `0x202`) — value × 100 packed into bytes 6–7 big-endian. 100 km/h → `0x2710` → frame `00 00 00 00 F0 00 27 10`. Both bytes are computed dynamically, giving **0.01 km/h resolution** (vs the ~5 km/h error of the original byte-7-fixed implementation).
+  - **Coolant temperature** (CAN `0x156`) — single byte 4 driven by a piecewise transfer function (`110` below 60 °C, `182` above 120 °C, two linear segments in between). Clamping at both ends prevents mechanical needle slamming.
 - All wake-up and active-test frames are written into the **Raw Frame Monitor** with their decoded labels, so students can see exactly what went on the bus.
 
 #### Raw CAN Monitor
