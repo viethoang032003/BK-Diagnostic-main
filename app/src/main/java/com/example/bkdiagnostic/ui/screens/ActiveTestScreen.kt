@@ -114,6 +114,8 @@ data class DashboardWarningIcon(
     val canId: Int = 0x000,
     val canData: ByteArray = ByteArray(8),
     val canDataOff: ByteArray? = null,
+    val streamMode: String? = null,
+    val streamIntervalMs: Long = 500L,
 ) {
     // ByteArray breaks default equals/hashCode — override to compare by id only
     override fun equals(other: Any?) = other is DashboardWarningIcon && id == other.id
@@ -289,9 +291,11 @@ fun ActiveTestScreen(
             val entry = dashboardConfig.icons[icon.id]
             if (entry != null) {
                 icon.copy(
-                    canId      = entry.canId,
-                    canData    = entry.canData,
-                    canDataOff = entry.canDataOff
+                    canId            = entry.canId,
+                    canData          = entry.canData,
+                    canDataOff       = entry.canDataOff,
+                    streamMode       = entry.streamMode,
+                    streamIntervalMs = entry.streamIntervalMs,
                 )
             } else icon
         }
@@ -305,6 +309,10 @@ fun ActiveTestScreen(
     val gaugeSpeedValue by viewModel.gaugeSpeed.collectAsStateWithLifecycle()
     val gaugeCoolantValue by viewModel.gaugeCoolant.collectAsStateWithLifecycle()
     val gaugeFrameCount by viewModel.gaugeFrameCount.collectAsStateWithLifecycle()
+
+    // Icon đang streaming (vd: hazard) — UI sẽ giữ trạng thái "firing" khi
+    // streamingIconId == icon.id.
+    val streamingIconId by viewModel.streamingIconId.collectAsStateWithLifecycle()
 
     // ImageLoader with SVG decoder — one instance per screen session
     val svgLoader = remember(context) {
@@ -332,6 +340,14 @@ fun ActiveTestScreen(
         message?.let {
             snackbarHost.showSnackbar(it)
             viewModel.clearMessage()
+        }
+    }
+
+    // ── Mất kết nối USB → tự stop icon stream để tránh job zombie cố gửi
+    //    frame thất bại liên tục.
+    LaunchedEffect(isConnected) {
+        if (!isConnected && streamingIconId != null) {
+            viewModel.stopIconStream()
         }
     }
 
@@ -409,8 +425,15 @@ fun ActiveTestScreen(
 
                 // Warning icons (merged with CAN config from JSON)
                 icons.forEach { icon ->
-                    val firing = firingIcons[icon.id] == true
+                    val isStreaming = streamingIconId == icon.id
+                    val firing = firingIcons[icon.id] == true || isStreaming
                     val hasCanConfig = icon.canId != 0
+                    // Icon thuộc loại streaming (vd: hazard) — bấm để TOGGLE start/stop
+                    val isStreamMode = icon.streamMode == "blink_toggle" && icon.canDataOff != null
+                    // Có icon khác đang stream → khóa các icon còn lại để tránh đè bus
+                    val anotherIsStreaming = streamingIconId != null && !isStreaming
+                    val canTap = isConnected && hasCanConfig && !anotherIsStreaming &&
+                                 (if (isStreamMode) true else !firing)
 
                     // When firing: blink between full-bright and near-black (real lamp-test feel)
                     // When idle + configured: 65% so the dashboard art stays readable
@@ -444,17 +467,31 @@ fun ActiveTestScreen(
                                 shape = CircleShape,
                             )
                             .alpha(displayAlpha)
-                            .clickable(enabled = isConnected && hasCanConfig && !firing) {
-                                scope.launch {
-                                    firingIcons[icon.id] = true
-                                    // Gửi frame ON
-                                    viewModel.sendActiveTestCommand(icon.canId, icon.canData)
-                                    delay(2000) // ~11 blink cycles @ 180 ms each
-                                    // Gửi frame OFF nếu có
-                                    icon.canDataOff?.let { offData ->
-                                        viewModel.sendActiveTestCommand(icon.canId, offData)
+                            .clickable(enabled = canTap) {
+                                if (isStreamMode) {
+                                    // ── Streaming icon: TOGGLE start/stop ──
+                                    if (isStreaming) {
+                                        viewModel.stopIconStream()
+                                    } else {
+                                        viewModel.startIconStream(
+                                            iconId    = icon.id,
+                                            canId     = icon.canId,
+                                            onData    = icon.canData,
+                                            offData   = icon.canDataOff!!,
+                                            intervalMs = icon.streamIntervalMs,
+                                        )
                                     }
-                                    firingIcons[icon.id] = false
+                                } else {
+                                    // ── Single-shot fire (existing behavior) ──
+                                    scope.launch {
+                                        firingIcons[icon.id] = true
+                                        viewModel.sendActiveTestCommand(icon.canId, icon.canData)
+                                        delay(2000) // ~11 blink cycles @ 180 ms each
+                                        icon.canDataOff?.let { offData ->
+                                            viewModel.sendActiveTestCommand(icon.canId, offData)
+                                        }
+                                        firingIcons[icon.id] = false
+                                    }
                                 }
                             },
                     ) {

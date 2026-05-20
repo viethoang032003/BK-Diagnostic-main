@@ -281,6 +281,67 @@ class DiagnosticViewModel(
         }
     }
 
+    // ════════════════════════════════════════════════════════════════════════
+    //  Icon streaming — toggle ON↔OFF liên tục (vd: Hazard flashers)
+    //  Khác với sendActiveTestCommand một-shot: streaming chạy trong loop
+    //  cho đến khi user dừng bằng cách bấm icon lần nữa.
+    // ════════════════════════════════════════════════════════════════════════
+
+    /** ID của icon đang streaming (nếu có). null = không có icon nào đang stream. */
+    private val _streamingIconId = MutableStateFlow<String?>(null)
+    val streamingIconId: StateFlow<String?> = _streamingIconId.asStateFlow()
+
+    private var iconStreamJob: Job? = null
+
+    /**
+     * Bắt đầu stream toggle ON↔OFF cho 1 icon.
+     *
+     * Loop:  ON → delay(intervalMs) → OFF → delay(intervalMs) → ON → ...
+     * Khi gọi [stopIconStream], gửi 1 frame OFF cuối để cluster tắt sạch.
+     *
+     * Chỉ cho phép 1 icon streaming tại 1 thời điểm — gọi khi đã có icon
+     * đang stream sẽ no-op.
+     */
+    fun startIconStream(
+        iconId: String,
+        canId: Int,
+        onData: ByteArray,
+        offData: ByteArray,
+        intervalMs: Long = 500L,
+    ) {
+        if (_streamingIconId.value != null) return
+        _streamingIconId.value = iconId
+        iconStreamJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                var on = true
+                while (isActive) {
+                    val data = if (on) onData else offData
+                    val frame = CanFrame(id = canId, dlc = 8, data = data.copyOf())
+                    logTxFrame(frame, source = "active_test",
+                        decoded = "Icon stream [$iconId ${if (on) "ON" else "OFF"}]: CAN 0x%03X".format(canId))
+                    usbManager.sendFrame(frame)
+                    delay(intervalMs)
+                    on = !on
+                }
+            } finally {
+                // Gửi frame OFF cuối khi dừng để cluster tắt ngay
+                val stopFrame = CanFrame(id = canId, dlc = 8, data = offData.copyOf())
+                logTxFrame(stopFrame, source = "active_test",
+                    decoded = "Icon stream STOP [$iconId]: CAN 0x%03X".format(canId))
+                runCatching { usbManager.sendFrame(stopFrame) }
+                _streamingIconId.value = null
+            }
+        }
+    }
+
+    /**
+     * Dừng icon stream hiện tại. No-op nếu không có icon nào đang stream.
+     */
+    fun stopIconStream() {
+        iconStreamJob?.cancel()
+        iconStreamJob = null
+    }
+
     /**
      * Gửi chuỗi CAN frame "đánh thức" cụm đồng hồ ngay sau khi USB-CAN kết
      * nối thành công.  Các frame được lấy hoàn toàn từ JSON config

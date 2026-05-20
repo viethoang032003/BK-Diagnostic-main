@@ -16,12 +16,23 @@ object DashboardCanConfig {
     private const val TAG = "DashboardCanConfig"
 
     /**
-     * CAN config cho 1 icon: frame ON (bắt buộc) + frame OFF (tùy chọn).
+     * CAN config cho 1 icon.
+     *
+     *  - canData       (bắt buộc): frame ON
+     *  - canDataOff    (tùy chọn): frame OFF
+     *  - streamMode    (tùy chọn): chế độ phát frame.
+     *      null            = single-shot (gửi 1 ON → đợi 2 s → gửi 1 OFF). Mặc định.
+     *      "blink_toggle"  = streaming: toggle ON↔OFF mỗi [streamIntervalMs] ms,
+     *                        chạy cho đến khi user bấm icon lần nữa để dừng.
+     *                        Yêu cầu phải có canDataOff.
+     *  - streamIntervalMs: chu kỳ toggle khi streamMode = "blink_toggle".
      */
     data class IconCanEntry(
         val canId: Int,
         val canData: ByteArray,
-        val canDataOff: ByteArray? = null
+        val canDataOff: ByteArray? = null,
+        val streamMode: String? = null,
+        val streamIntervalMs: Long = 500L,
     ) {
         override fun equals(other: Any?) = other is IconCanEntry && canId == other.canId
         override fun hashCode() = canId
@@ -210,7 +221,9 @@ object DashboardCanConfig {
                 val canDataOff = entry.optString("canDataOff", "").let { s ->
                     if (s.isBlank()) null else parseHexBytes(s)
                 }
-                result[key] = IconCanEntry(canId, canData, canDataOff)
+                val streamMode = entry.optString("streamMode", "").takeIf { it.isNotBlank() }
+                val streamIntervalMs = entry.optLong("streamIntervalMs", 500L)
+                result[key] = IconCanEntry(canId, canData, canDataOff, streamMode, streamIntervalMs)
             } catch (e: Exception) {
                 Log.w(TAG, "Lỗi parse icon '$key': ${e.message}")
             }
